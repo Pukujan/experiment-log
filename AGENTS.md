@@ -1,8 +1,7 @@
 # Experiment Log — Agent Protocol
 
-This directory records everything this agent has tried on Pujan's local
-machine. All entries in experiments/ and fixes/ are agent written and
-agent readable. The human does not maintain this repo.
+All entries in agent/ are agent written and agent readable.
+The human does not maintain this repo.
 
 ## Purpose
 
@@ -13,52 +12,33 @@ the third iteration is the one to use.
 ## Structure
 
 ```
-experiments/<topic>/
-  _index.md             TL;DR — one line goal, one line verdict, date last touched
-  001-resolution.md     What happened, in entry order
-  ...
-
-fixes/<tool-or-project>/
-  _index.md
-  001-fix-name.md
+agent/
+  <prefix>__<nnn>-<description>.md
 ```
 
-Use experiments/ when you set something up for the first time or
-explored unknown territory. Use fixes/ when something was broken and
-you un broke it.
+Prefixes: hermes-config, hermes-docker, hermes-paths, hermes-cron, hermes-<topic>
 
-## Entry format
+## Entry format (agent only)
 
-```markdown
-# Short descriptive title
+```text
+<file name without .md>
+tags: comma, separated, tags
 
-Date: <YYYY-MM-DD>
-Tags: comma, separated, tags
+compact facts. executable commands.
+one per line or short block.
 
-## What I tried
-Context and commands attempted.
+exact commands with arguments.
+prefer bash/powershell one liners.
 
-## What worked
-The actual solution. Commands that succeeded, config that stuck.
-
-## What didn't work
-Dead ends and why. Save future sessions from repeating them.
-
-## Key commands
-bash
-  the command that actually fixed it
-
-## Lesson
-One sentence. If you take nothing else from this entry, take this.
+key config values if applicable.
 ```
 
-## Rules
+No prose. No sections. No markdown headings. No lessons.
+Just tags, facts, commands.
 
-1. Always create an AGENTS.md entry when a solution took more than
-   3 iterations or a non obvious combination of config settings.
-2. Entries are written as markdown under the agent/ directory so the
-   collective-doc-library search.py picks them up via its standard
-   agent/ convention.
-3. The _index.md is the TL;DR. It has no more than 5 lines.
-4. Tag consistently. Tags are: tool name, problem type, os
-   (hermes, docker, hermes-config, windows, git-bash, networking, etc.)
+Rules:
+1. Tags: tool name, problem type, os (hermes, docker, windows, git-bash, etc.)
+2. First line is always the filename without extension matching the entry
+3. Include exact CLI commands that solved it
+4. Update entries when new info supersedes old info
+5. Do not repeat the date -- git history tracks that
