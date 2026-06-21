@@ -1,23 +1,48 @@
-# Hermes Docker backend on Windows — setup guide
+# Hermes Docker backend on Windows — full fix
 
 Date: 2026-06-21
-Tags: hermes, docker, windows, git-bash, hermes-config, docker-socket
+Updated: 2026-06-21 — corrected backslash JSON escape bug and socket mount
+Tags: hermes, docker, windows, git-bash, hermes-config, json, escape
 
 ## What I tried
 
 Setting Hermes to run terminal commands inside a Docker container on
 Windows 10 with Docker Desktop.
 
-Attempted approaches:
+Attempts:
 1. Set `backend: docker` in config.yaml and `TERMINAL_ENV=docker` in .env
 2. Used nikolaik/python-nodejs:python3.11-nodejs20 base image directly
 3. Built custom image extending the base with docker.io and docker-cli
 4. Mounted Docker socket via //var/run/docker.sock (MSYS double slash)
-5. Tried single /var/run/docker.sock — failed, MSYS rewrote it to C:\Program Files\Git\var\run\docker.sock
+5. Tried single /var/run/docker.sock — failed, MSYS rewrote it to
+   C:\Program Files\Git\var\run\docker.sock
+
+## Root cause of terminal/code tool failure
+
+Terminal and execute_code tools both failed silently. The actual error was:
+
+```
+ValueError: Invalid value for TERMINAL_DOCKER_VOLUMES
+json.decoder.JSONDecodeError: Invalid \escape
+```
+
+`TERMINAL_DOCKER_VOLUMES` was written with Windows backslash paths inside
+a JSON string:
+
+```
+["C:\Users\pujan\...:/workspace"]
+```
+
+In JSON, backslashes start escape sequences. `\U`, `\O`, `\D`, etc. are
+invalid JSON escapes. Hermes parses `TERMINAL_DOCKER_VOLUMES` with
+`json.loads()`, so the entire env config setup failed before Docker
+commands could run. This crashed both `terminal` and `execute_code` tools
+since both call `_get_env_config()`.
 
 ## What worked
 
-Final working setup:
+Final working config. Use forward slashes in JSON paths, not backslashes.
+Do not mount the Docker socket. Set cwd to a container path.
 
 **Custom Dockerfile** at `.hermes/Dockerfile`:
 ```dockerfile
@@ -39,58 +64,74 @@ docker build -t hermes-docker:latest .hermes/
 ```yaml
 terminal:
   backend: docker
+  cwd: /workspace
   docker_image: hermes-docker:latest
-  docker_volumes:
-    - "C:\\Users\\pujan\\OneDrive\\Desktop\\web dev\\webdev 2.0:/workspace"
-    - "//var/run/docker.sock:/var/run/docker.sock"
+  docker_volumes: '["C:/Users/pujan/OneDrive/Desktop/web dev/webdev 2.0:/workspace"]'
+  docker_mount_cwd_to_workspace: false
 ```
 
-**.env setting:**
+**.env settings:**
 ```
 TERMINAL_ENV=docker
+TERMINAL_CWD=/workspace
+TERMINAL_DOCKER_IMAGE=hermes-docker:latest
+TERMINAL_DOCKER_VOLUMES=["C:/Users/pujan/OneDrive/Desktop/web dev/webdev 2.0:/workspace"]
 ```
+
+Key rules:
+- Use forward slashes `C:/Users/...` not `C:\Users\...` in JSON values
+- Do not mount the Docker socket — not needed for normal terminal commands
+  and adds Windows/Docker Desktop compatibility issues
+- Docker cwd must be `/workspace`, not a Windows host path
+- Keep .env and config.yaml consistent (env overrides config)
+- After changing, fully quit Hermes and restart from fresh PowerShell
 
 ## What didn't work
 
-1. **Directly editing config.yaml with write_file or patch in Hermes**
-   Config file is under C:\Users\pujan\AppData\Local\hermes\config.yaml,
-   NOT in the project folder. The tool guard blocks writes outside the
-   project directory. Use `hermes config set` CLI commands instead.
+1. **Backslash paths in JSON** — `\U`, `\O`, `\D` are invalid JSON escapes
+   that crash json.loads. Hermes silently fails terminal/code tools.
 
-2. **Single slash /var/run/docker.sock from MSYS/git-bash**
-   MSYS translates Unix paths starting with / to Windows paths using
-   its root mapping. /var/run/docker.sock becomes
-   C:\Program Files\Git\var\run\docker.sock which doesn't exist.
-   Double slash //var/run/docker.sock bypasses this translation.
+2. **Windows host path as Docker cwd** — `docker run -w` needs a container
+   path, not a Windows one.
 
-3. **Without docker.io installed in the container image**
-   The nikolaik/python-nodejs image does not include Docker CLI.
-   Even with the socket mounted, docker ps fails inside the container.
+3. **Docker socket mount** — unnecessary for basic terminal execution.
+   MSYS translation problems add no value here.
 
-4. **Terminal tool still runs locally after config changes**
-   The terminal backend type is read at Hermes process startup.
-   Changes to config.yaml or .env require a restart (/new or close
-   and reopen Hermes). There is no live reload for terminal backend.
+4. **Direct config.yaml editing via write_file/patch** — blocked by Hermes
+   tool guard. Use `hermes config set` for config, sed for .env.
 
-## Verification commands
+5. **Partial restart** — just closing the tab is not enough. A running
+   Hermes process keeps old env/config state in memory.
+
+6. **Old errors.log entries** — pre-fix errors remain in the log. Ignore
+   if timestamp is before the restart.
+
+## Verification
 
 ```bash
-# Verify image is built
-docker images hermes-docker:latest
+# Direct Docker mount test
+docker run --rm -v "C:/Users/pujan/OneDrive/Desktop/web dev/webdev 2.0:/workspace" -w /workspace hermes-docker:latest python -c "import os; print(os.getcwd()); print(os.path.exists('/workspace'))"
+# Output: /workspace  True
 
-# Verify tools inside container
-docker run --rm -v //var/run/docker.sock:/var/run/docker.sock \
-  hermes-docker:latest sh -c "python3 --version && node --version && docker ps"
+# Docker version proves Docker itself works
+docker version  # Client/Server 29.4.1
 
-# Check config is set
-hermes config get terminal.backend
-hermes config get terminal.docker_image
+# Hermes terminal tool output after fix showed:
+#   env_type = docker
+#   cwd = /workspace
+#   docker_volumes = ["C:/Users/pujan/.../webdev 2.0:/workspace"]
+
+# Hermes execute_code tool also worked after the fix
 ```
+
+## Separate unrelated issue
+
+Discord gateway failed with privileged intents errors. That is unrelated
+to Docker terminal commands. Ignore it unless working on Discord.
 
 ## Lesson
 
-Hermes Docker backend on Windows needs: (1) a custom image with docker.io
-installed, (2) double-slash //var/run/docker.sock for the socket mount,
-(3) properly escaped backslashes in docker_volumes, and (4) a session
-restart to take effect. The config.yaml tool guard blocks direct edits,
-so use `hermes config set` for config changes.
+`TERMINAL_DOCKER_VOLUMES` MUST use forward slashes on Windows. Backslashes
+are invalid JSON escapes and silently crash the Hermes env config parser.
+Keep the config simple — no socket mount, no Windows paths as cwd. Verify
+config and .env are consistent, then restart Hermes fully.
