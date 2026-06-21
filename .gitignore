@@ -1,0 +1,4 @@
+# Local config files
+config.yaml
+.env
+*.env.local
