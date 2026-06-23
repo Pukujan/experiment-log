@@ -1,2 +1,5 @@
-# collective-docs parent — ignore all repo-internal files
-# Each sub-repo has its own .gitignore
+# Ignore subrepo directories entirely
+collective-doc-library/
+collective-docs-1/
+collective-docs-2/
+experiment-log/
